@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 The Android Open Source Project
+ * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-#ifndef NATIVEHELPER_JNIHELP_PRIV_H_
-#define NATIVEHELPER_JNIHELP_PRIV_H_
+// All header files with MODULE_API decorated function declarations.
+#include "nativehelper/AsynchronousCloseMonitor.h"
+#include "nativehelper/JNIHelp.h"
+#include "nativehelper/JniInvocation.h"
+#include "nativehelper/toStringArray.h"
 
-namespace android {
-
-void ClearJNIHelpLocalCache();
-
-}  // namespace android
-
-#endif  // JNIHELP_PRIV
+int main() {
+  // The test here is that the headers are properly guarded to support
+  // compilation with a C compiler.
+  return 0;
+}
