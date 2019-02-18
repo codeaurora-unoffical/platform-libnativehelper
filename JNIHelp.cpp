@@ -16,69 +16,14 @@
 
 #define LOG_TAG "JNIHelp"
 
-#include <nativehelper/JniConstants.h>
-#include <nativehelper/JNIHelp.h>
-#include "ALog-priv.h"
+#include "nativehelper/JNIHelp.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
+#include "ALog-priv.h"
 
 #include <string>
 
-namespace {
-
-// java.io.FileDescriptor.descriptor.
-jfieldID fileDescriptorDescriptorField = nullptr;
-// java.io.FileDescriptor.ownerId.
-jfieldID fileDescriptorOwnerIdField = nullptr;
-
-// void java.io.FileDescriptor.<init>().
-jmethodID fileDescriptorInitMethod = nullptr;
-// Object java.lang.ref.Reference.get()
-jmethodID referenceGetMethod = nullptr;
-
-jfieldID FindField(JNIEnv* env, jclass klass, const char* name, const char* desc) {
-    jfieldID result = env->GetFieldID(klass, name, desc);
-    if (result == NULL) {
-        ALOGV("failed to find field '%s:%s'", name, desc);
-        abort();
-    }
-    return result;
-}
-
-jmethodID FindMethod(JNIEnv* env, jclass klass, const char* name, const char* signature) {
-    jmethodID result = env->GetMethodID(klass, name, signature);
-    if (result == NULL) {
-        ALOGV("failed to find method '%s%s'", name, signature);
-        abort();
-    }
-    return result;
-}
-
-void InitFieldsAndMethods(JNIEnv* env) {
-    JniConstants::init(env);  // Ensure that classes are cached.
-    fileDescriptorDescriptorField = FindField(env, JniConstants::fileDescriptorClass, "descriptor",
-            "I");
-    fileDescriptorOwnerIdField = FindField(env, JniConstants::fileDescriptorClass, "ownerId",
-            "J");
-    fileDescriptorInitMethod = FindMethod(env, JniConstants::fileDescriptorClass, "<init>", "()V");
-    referenceGetMethod = FindMethod(env, JniConstants::referenceClass, "get",
-            "()Ljava/lang/Object;");
-}
-
-}
-
-namespace android {
-
-void ClearJNIHelpLocalCache() {
-    fileDescriptorDescriptorField = nullptr;
-    fileDescriptorInitMethod = nullptr;
-    referenceGetMethod = nullptr;
-}
-
-}
+#include "JniConstants.h"
+#include "nativehelper/ScopedLocalRef.h"
 
 /**
  * Equivalent to ScopedLocalRef, but for C_JNIEnv instead. (And slightly more powerful.)
@@ -118,7 +63,7 @@ static jclass findClass(C_JNIEnv* env, const char* className) {
     return (*env)->FindClass(e, className);
 }
 
-extern "C" int jniRegisterNativeMethods(C_JNIEnv* env, const char* className,
+MODULE_API int jniRegisterNativeMethods(C_JNIEnv* env, const char* className,
     const JNINativeMethod* gMethods, int numMethods)
 {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
@@ -269,7 +214,7 @@ static bool getStackTrace(C_JNIEnv* env, jthrowable exception, std::string& resu
     return true;
 }
 
-extern "C" int jniThrowException(C_JNIEnv* env, const char* className, const char* msg) {
+MODULE_API int jniThrowException(C_JNIEnv* env, const char* className, const char* msg) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
 
     if ((*env)->ExceptionCheck(e)) {
@@ -300,21 +245,21 @@ extern "C" int jniThrowException(C_JNIEnv* env, const char* className, const cha
     return 0;
 }
 
-int jniThrowExceptionFmt(C_JNIEnv* env, const char* className, const char* fmt, va_list args) {
+MODULE_API int jniThrowExceptionFmt(C_JNIEnv* env, const char* className, const char* fmt, va_list args) {
     char msgBuf[512];
     vsnprintf(msgBuf, sizeof(msgBuf), fmt, args);
     return jniThrowException(env, className, msgBuf);
 }
 
-int jniThrowNullPointerException(C_JNIEnv* env, const char* msg) {
+MODULE_API int jniThrowNullPointerException(C_JNIEnv* env, const char* msg) {
     return jniThrowException(env, "java/lang/NullPointerException", msg);
 }
 
-int jniThrowRuntimeException(C_JNIEnv* env, const char* msg) {
+MODULE_API int jniThrowRuntimeException(C_JNIEnv* env, const char* msg) {
     return jniThrowException(env, "java/lang/RuntimeException", msg);
 }
 
-int jniThrowIOException(C_JNIEnv* env, int errnum) {
+MODULE_API int jniThrowIOException(C_JNIEnv* env, int errnum) {
     char buffer[80];
     const char* message = jniStrError(errnum, buffer, sizeof(buffer));
     return jniThrowException(env, "java/io/IOException", message);
@@ -348,7 +293,7 @@ static std::string jniGetStackTrace(C_JNIEnv* env, jthrowable exception) {
     return trace;
 }
 
-void jniLogException(C_JNIEnv* env, int priority, const char* tag, jthrowable exception) {
+MODULE_API void jniLogException(C_JNIEnv* env, int priority, const char* tag, jthrowable exception) {
     std::string trace(jniGetStackTrace(env, exception));
     __android_log_write(priority, tag, trace.c_str());
 }
@@ -381,70 +326,54 @@ inline const char* realJniStrError(POSIXStrError func, int errnum, char* buf, si
 
 }  // namespace impl
 
-const char* jniStrError(int errnum, char* buf, size_t buflen) {
+MODULE_API const char* jniStrError(int errnum, char* buf, size_t buflen) {
   // The magic of C++ overloading selects the correct implementation based on the declared type of
   // strerror_r. The inline will ensure that we don't have any indirect calls.
   return impl::realJniStrError(strerror_r, errnum, buf, buflen);
 }
 
-jobject jniCreateFileDescriptor(C_JNIEnv* env, int fd) {
+MODULE_API jobject jniCreateFileDescriptor(C_JNIEnv* env, int fd) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
-    if (fileDescriptorInitMethod == nullptr) {
-        InitFieldsAndMethods(e);
-    }
-    jobject fileDescriptor = (*env)->NewObject(e, JniConstants::fileDescriptorClass,
-            fileDescriptorInitMethod);
+    jobject fileDescriptor = e->NewObject(JniConstants::GetFileDescriptorClass(e),
+                                          JniConstants::GetFileDescriptorInitMethod(e));
     // NOTE: NewObject ensures that an OutOfMemoryError will be seen by the Java
-    // caller if the alloc fails, so we just return NULL when that happens.
-    if (fileDescriptor != NULL)  {
+    // caller if the alloc fails, so we just return nullptr when that happens.
+    if (fileDescriptor != nullptr)  {
         jniSetFileDescriptorOfFD(env, fileDescriptor, fd);
     }
     return fileDescriptor;
 }
 
-int jniGetFDFromFileDescriptor(C_JNIEnv* env, jobject fileDescriptor) {
+MODULE_API int jniGetFDFromFileDescriptor(C_JNIEnv* env, jobject fileDescriptor) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
-    if (fileDescriptorDescriptorField == nullptr) {
-        InitFieldsAndMethods(e);
-    }
-    if (fileDescriptor != NULL) {
-        return (*env)->GetIntField(e, fileDescriptor,
-                fileDescriptorDescriptorField);
+    if (fileDescriptor != nullptr) {
+        return e->GetIntField(fileDescriptor,
+                              JniConstants::GetFileDescriptorDescriptorField(e));
     } else {
         return -1;
     }
 }
 
-void jniSetFileDescriptorOfFD(C_JNIEnv* env, jobject fileDescriptor, int value) {
+MODULE_API void jniSetFileDescriptorOfFD(C_JNIEnv* env, jobject fileDescriptor, int value) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
-    if (fileDescriptorDescriptorField == nullptr) {
-        InitFieldsAndMethods(e);
-    }
-
     if (fileDescriptor == nullptr) {
         jniThrowNullPointerException(e, "null FileDescriptor");
     } else {
-        e->SetIntField(fileDescriptor, fileDescriptorDescriptorField, value);
+        e->SetIntField(fileDescriptor, JniConstants::GetFileDescriptorDescriptorField(e), value);
     }
 }
 
-jlong jniGetOwnerIdFromFileDescriptor(C_JNIEnv* env, jobject fileDescriptor) {
+MODULE_API jlong jniGetOwnerIdFromFileDescriptor(C_JNIEnv* env, jobject fileDescriptor) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
-    if (fileDescriptorOwnerIdField == nullptr) {
-        InitFieldsAndMethods(e);
-    }
-    return (*env)->GetLongField(e, fileDescriptor, fileDescriptorOwnerIdField);
+    return e->GetLongField(fileDescriptor, JniConstants::GetFileDescriptorOwnerIdField(e));
 }
 
-jobject jniGetReferent(C_JNIEnv* env, jobject ref) {
+MODULE_API jobject jniGetReferent(C_JNIEnv* env, jobject ref) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
-    if (referenceGetMethod == nullptr) {
-        InitFieldsAndMethods(e);
-    }
-    return (*env)->CallObjectMethod(e, ref, referenceGetMethod);
+    return e->CallObjectMethod(ref, JniConstants::GetReferenceGetMethod(e));
 }
 
-jstring jniCreateString(C_JNIEnv* env, const jchar* unicodeChars, jsize len) {
+MODULE_API jstring jniCreateString(C_JNIEnv* env, const jchar* unicodeChars, jsize len) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
-    return (*env)->NewString(e, unicodeChars, len);
+    return e->NewString(unicodeChars, len);
 }
