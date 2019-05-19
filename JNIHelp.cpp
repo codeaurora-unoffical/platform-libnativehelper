@@ -71,31 +71,13 @@ MODULE_API int jniRegisterNativeMethods(C_JNIEnv* env, const char* className,
     ALOGV("Registering %s's %d native methods...", className, numMethods);
 
     scoped_local_ref<jclass> c(env, findClass(env, className));
-    if (c.get() == NULL) {
-        char* tmp;
-        const char* msg;
-        if (asprintf(&tmp,
-                     "Native registration unable to find class '%s'; aborting...",
-                     className) == -1) {
-            // Allocation failed, print default warning.
-            msg = "Native registration unable to find class; aborting...";
-        } else {
-            msg = tmp;
-        }
-        e->FatalError(msg);
-    }
+    ALOG_ALWAYS_FATAL_IF(c.get() == NULL,
+                         "Native registration unable to find class '%s'; aborting...",
+                         className);
 
-    if ((*env)->RegisterNatives(e, c.get(), gMethods, numMethods) < 0) {
-        char* tmp;
-        const char* msg;
-        if (asprintf(&tmp, "RegisterNatives failed for '%s'; aborting...", className) == -1) {
-            // Allocation failed, print default warning.
-            msg = "RegisterNatives failed; aborting...";
-        } else {
-            msg = tmp;
-        }
-        e->FatalError(msg);
-    }
+    int result = e->RegisterNatives(c.get(), gMethods, numMethods);
+    ALOG_ALWAYS_FATAL_IF(result < 0, "RegisterNatives failed for '%s'; aborting...",
+                         className);
 
     return 0;
 }
@@ -327,9 +309,14 @@ inline const char* realJniStrError(POSIXStrError func, int errnum, char* buf, si
 }  // namespace impl
 
 MODULE_API const char* jniStrError(int errnum, char* buf, size_t buflen) {
+#ifdef _WIN32
+  strerror_s(buf, buflen, errnum);
+  return buf;
+#else
   // The magic of C++ overloading selects the correct implementation based on the declared type of
   // strerror_r. The inline will ensure that we don't have any indirect calls.
   return impl::realJniStrError(strerror_r, errnum, buf, buflen);
+#endif
 }
 
 MODULE_API jobject jniCreateFileDescriptor(C_JNIEnv* env, int fd) {
@@ -368,6 +355,43 @@ MODULE_API jlong jniGetOwnerIdFromFileDescriptor(C_JNIEnv* env, jobject fileDesc
     return e->GetLongField(fileDescriptor, JniConstants::GetFileDescriptorOwnerIdField(e));
 }
 
+MODULE_API jarray jniGetNioBufferBaseArray(C_JNIEnv* env, jobject nioBuffer) {
+    JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
+    jclass nioAccessClass = JniConstants::GetNioAccessClass(e);
+    jmethodID getBaseArrayMethod = JniConstants::GetNioAccessGetBaseArrayMethod(e);
+    jobject object = e->CallStaticObjectMethod(nioAccessClass, getBaseArrayMethod, nioBuffer);
+    return static_cast<jarray>(object);
+}
+
+MODULE_API int jniGetNioBufferBaseArrayOffset(C_JNIEnv* env, jobject nioBuffer) {
+    JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
+    jclass nioAccessClass = JniConstants::GetNioAccessClass(e);
+    jmethodID getBaseArrayOffsetMethod = JniConstants::GetNioAccessGetBaseArrayOffsetMethod(e);
+    return e->CallStaticIntMethod(nioAccessClass, getBaseArrayOffsetMethod, nioBuffer);
+}
+
+MODULE_API jlong jniGetNioBufferPointer(C_JNIEnv* env, jobject nioBuffer) {
+    JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
+    jlong baseAddress = e->GetLongField(nioBuffer, JniConstants::GetNioBufferAddressField(e));
+    if (baseAddress != 0) {
+      const int position = e->GetIntField(nioBuffer, JniConstants::GetNioBufferPositionField(e));
+      const int shift =
+          e->GetIntField(nioBuffer, JniConstants::GetNioBufferElementSizeShiftField(e));
+      baseAddress += position << shift;
+    }
+    return baseAddress;
+}
+
+MODULE_API jlong jniGetNioBufferFields(C_JNIEnv* env, jobject nioBuffer,
+                                       jint* position, jint* limit, jint* elementSizeShift) {
+    JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
+    *position = e->GetIntField(nioBuffer, JniConstants::GetNioBufferPositionField(e));
+    *limit = e->GetIntField(nioBuffer, JniConstants::GetNioBufferLimitField(e));
+    *elementSizeShift =
+        e->GetIntField(nioBuffer, JniConstants::GetNioBufferElementSizeShiftField(e));
+    return e->GetLongField(nioBuffer, JniConstants::GetNioBufferAddressField(e));
+}
+
 MODULE_API jobject jniGetReferent(C_JNIEnv* env, jobject ref) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
     return e->CallObjectMethod(ref, JniConstants::GetReferenceGetMethod(e));
@@ -376,4 +400,8 @@ MODULE_API jobject jniGetReferent(C_JNIEnv* env, jobject ref) {
 MODULE_API jstring jniCreateString(C_JNIEnv* env, const jchar* unicodeChars, jsize len) {
     JNIEnv* e = reinterpret_cast<JNIEnv*>(env);
     return e->NewString(unicodeChars, len);
+}
+
+MODULE_API void jniUninitializeConstants() {
+  JniConstants::Uninitialize();
 }
