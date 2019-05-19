@@ -18,9 +18,14 @@ LIBNATIVEHELPER_1 {
     jniGetFDFromFileDescriptor;
     jniSetFileDescriptorOfFD;
     jniGetOwnerIdFromFileDescriptor;
+    jniGetNioBufferBaseArray;
+    jniGetNioBufferBaseArrayOffset;
+    jniGetNioBufferPointer;
+    jniGetNioBufferFields;
     jniGetReferent;
     jniCreateString;
     jniLogException;
+    jniUninitializeConstants;
 
     JniInvocationCreate;
     JniInvocationDestroy;
