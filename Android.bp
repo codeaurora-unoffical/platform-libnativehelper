@@ -24,6 +24,8 @@ cc_library_headers {
     },
     // The minimum sdk version required by users of this module.
     sdk_version: "minimum",
+    // As part of mainline modules(APEX), it should support at least 29(Q)
+    min_sdk_version: "29",
 }
 
 cc_library_headers {
@@ -36,6 +38,13 @@ cc_library_headers {
         },
     },
     sdk_version: "current",
+    // As part of mainline modules(APEX), it should support at least 29(Q)
+    min_sdk_version: "29",
+
+    apex_available: [
+        "//apex_available:platform",
+        "//apex_available:anyapex",
+    ],
 }
 
 cc_library_headers {
@@ -47,6 +56,12 @@ cc_library_headers {
             enabled: true,
         },
     },
+
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.art.debug",
+        "com.android.art.release",
+    ],
 }
 
 cc_library {
@@ -78,6 +93,7 @@ cc_library {
             enabled: true,
         },
     },
+    // Please avoid adding APEX dependencies on this for R (b/157711673).
     apex_available: [
         "com.android.art.release",
         "com.android.art.debug",
